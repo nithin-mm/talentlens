@@ -123,6 +123,7 @@ function PdfPageRenderer({ pdfDocument, pageNum, zoom }) {
 export default function TalentLens() {
   const [apiKey, setApiKey] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isCompareOpen, setIsCompareOpen] = useState(false);
   const [documents, setDocuments] = useState([]);
   const [activeDocId, setActiveDocId] = useState(null);
   const [jdDocId, setJdDocId] = useState(null); 
@@ -636,15 +637,24 @@ Evaluate and return structured rating in JSON format:
       return;
     }
 
-    const activeDocs = documents.filter(d => d.included && d.status === 'ready');
-    if (activeDocs.length === 0) return;
+    // The Job Description is not a candidate — keep it out of the candidate list.
+    const candidateDocs = documents.filter(d => d.included && d.status === 'ready' && d.id !== jdDocId);
+    if (candidateDocs.length === 0) {
+      setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: 'Add at least one candidate (a document other than the Job Description) to generate an audio overview.' }]);
+      return;
+    }
+
+    const jdDoc = documents.find(d => d.id === jdDocId);
+    const jdContext = jdDoc
+      ? `Job Description being hired for:\n${jdDoc.pages.map(p => p.text).join(' ').replace(/\s+/g, ' ').trim().substring(0, 1500)}\n\n`
+      : '';
 
     try {
       setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: '🎙️ *Assembling high fidelity candidate comparison podcast outline...*' }]);
-      
+
       // Ground the model with each candidate's actual resume text so it uses real
       // names/facts instead of inventing them. Cap per-candidate to keep tokens sane.
-      const docContext = activeDocs.map((d, i) => {
+      const docContext = candidateDocs.map((d, i) => {
          const label = d.name.replace(/\.[^.]+$/, '');
          const meta = d.matchAnalysis ? `JD Match Score: ${d.matchAnalysis.score}%` : 'JD Match: not scored';
          const resumeExcerpt = d.pages.map(p => p.text).join(' ').replace(/\s+/g, ' ').trim().substring(0, 1500);
@@ -659,8 +669,9 @@ STRICT RULES:
 - Refer to each candidate by the actual name found in their resume excerpt. If no clear name is present, refer to them by their file label (for example, "the candidate in resume_one"). Never make up a name.
 - Keep it to roughly 45 seconds of speech (about 110-130 words).
 - Conversational and engaging, but strictly factual. Output plain spoken text only: no bullet points, asterisks, headings, or Markdown.
+- The Job Description below (if present) is the role being hired for. It is NOT a candidate — use it only as context for how well each candidate fits.
 
-Candidates:
+${jdContext}Candidates:
 ${docContext}` }] }],
         generationConfig: { temperature: 0.4 }
       };
@@ -741,6 +752,11 @@ ${docContext}` }] }],
     .filter(d => d.included && d.status === 'ready')
     .flatMap(d => d.suggestedQuestions || [])
     .slice(0, 4);
+
+  // Candidates for the visual compare board: ready, included, not the JD, sorted by JD score.
+  const comparisonDocs = documents
+    .filter(d => d.included && d.status === 'ready' && d.id !== jdDocId)
+    .sort((a, b) => (b.matchAnalysis?.score ?? -1) - (a.matchAnalysis?.score ?? -1));
 
   return (
     <div className={`flex flex-col h-screen overflow-hidden ${isDarkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'}`}>
@@ -936,7 +952,7 @@ ${docContext}` }] }],
           <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800">
              <button 
                 onClick={handleGeneratePodcast}
-                disabled={documents.filter(d => d.included && d.status === 'ready').length === 0}
+                disabled={documents.filter(d => d.included && d.status === 'ready' && d.id !== jdDocId).length === 0}
                 className="w-full py-2.5 px-3 flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
              >
                 {isAudioPlaying ? <Pause size={16} /> : <Mic size={16} />}
@@ -1087,25 +1103,25 @@ ${docContext}` }] }],
         </section>
 
         {/* PANEL 3: CHAT RECRUITER ASSISTANT */}
-        <section className={`flex-1 bg-white dark:bg-slate-950 flex flex-col relative ${activeTabMobile !== 'chat' ? 'hidden md:flex' : 'flex'}`}>
+        <section className={`flex-1 min-w-0 bg-white dark:bg-slate-950 flex flex-col relative ${activeTabMobile !== 'chat' ? 'hidden md:flex' : 'flex'}`}>
           
           <div className="p-4 border-b border-slate-100 dark:border-slate-900 bg-white/80 dark:bg-slate-950/80 backdrop-blur-sm z-10 flex items-center gap-2">
              <MessageSquare size={18} className="text-blue-600 dark:text-blue-400"/>
              <h2 className="font-bold text-slate-800 dark:text-slate-100">AI Screening Assistant</h2>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          <div className="flex-1 min-w-0 overflow-y-auto p-4 space-y-6">
             {messages.map((msg) => (
               <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] rounded-2xl px-5 py-3 shadow-sm ${
-                  msg.role === 'user' 
-                    ? 'bg-blue-600 text-white rounded-tr-sm' 
+                <div className={`max-w-[85%] min-w-0 rounded-2xl px-5 py-3 shadow-sm ${
+                  msg.role === 'user'
+                    ? 'bg-blue-600 text-white rounded-tr-sm'
                     : 'bg-slate-50 border border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200 rounded-tl-sm'
                 }`}>
                   {msg.role === 'user' ? (
-                     <div className="text-sm whitespace-pre-wrap">{msg.text}</div>
+                     <div className="text-sm whitespace-pre-wrap break-words">{msg.text}</div>
                   ) : (
-                     <div className="prose prose-sm dark:prose-invert prose-blue max-w-none">
+                     <div className="prose prose-sm dark:prose-invert prose-blue max-w-none break-words overflow-x-auto">
                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={renderers}>{msg.text || (isStreaming ? "..." : "")}</ReactMarkdown>
                      </div>
                   )}
@@ -1134,8 +1150,8 @@ ${docContext}` }] }],
           <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800">
              <div className="flex gap-2 mb-2 items-center text-xs text-slate-500">
                <span className="font-bold uppercase tracking-wider text-[10px]">Quick Screens:</span>
-               <button 
-                 onClick={() => handleChatSubmit("Rank all included candidates from strongest to weakest fit for the job description. For each, give: a one-line verdict, top 3 matching strengths, the single biggest gap, and a recommendation (Advance / Maybe / Pass). Cite sources.")}
+               <button
+                 onClick={() => setIsCompareOpen(true)}
                  className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-0.5"
                >
                  Compare Resumes <ArrowUpRight size={12} />
@@ -1177,6 +1193,104 @@ ${docContext}` }] }],
           </div>
         </section>
       </main>
+
+      {/* --- COMPARE CANDIDATES MODAL --- */}
+      {isCompareOpen && (
+        <div
+          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setIsCompareOpen(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center p-5 border-b border-slate-200 dark:border-slate-800">
+              <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                <Users size={20} className="text-blue-600" /> Compare Candidates
+              </h2>
+              <button onClick={() => setIsCompareOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4">
+              {!jdDocId && (
+                <div className="flex items-start gap-2 text-xs bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-amber-700 dark:text-amber-400 p-3 rounded-lg">
+                  <AlertCircle size={16} className="flex-none mt-0.5" />
+                  <span>Designate or paste a Job Description to score and rank these candidates by fit.</span>
+                </div>
+              )}
+
+              {comparisonDocs.length === 0 ? (
+                <div className="text-center text-sm text-slate-400 dark:text-slate-600 py-10">
+                  No candidates to compare. Upload and include at least one resume.
+                </div>
+              ) : (
+                comparisonDocs.map(doc => {
+                  const score = doc.matchAnalysis?.score;
+                  const hasScore = typeof score === 'number';
+                  const barColor = !hasScore ? 'bg-slate-300 dark:bg-slate-700'
+                    : score >= 75 ? 'bg-emerald-500'
+                    : score >= 50 ? 'bg-blue-500'
+                    : 'bg-amber-500';
+                  const matched = doc.matchAnalysis?.matchedSkills?.length ? doc.matchAnalysis.matchedSkills : null;
+                  const gaps = doc.matchAnalysis?.missingSkills?.length ? doc.matchAnalysis.missingSkills : null;
+
+                  return (
+                    <div key={doc.id} className="border border-slate-200 dark:border-slate-800 rounded-xl p-4">
+                      <div className="flex items-center justify-between gap-3 mb-2">
+                        <button
+                          onClick={() => { setActiveDocId(doc.id); setActiveTabMobile('viewer'); setIsCompareOpen(false); }}
+                          className="font-semibold text-sm text-slate-800 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 truncate text-left"
+                          title="Open in viewer"
+                        >
+                          {doc.name}
+                        </button>
+                        <span className="flex-none text-sm font-black text-slate-700 dark:text-slate-200">
+                          {hasScore ? `${score}%` : 'Not scored'}
+                        </span>
+                      </div>
+
+                      <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden mb-3">
+                        <div className={`h-full ${barColor} rounded-full transition-all duration-500`} style={{ width: hasScore ? `${score}%` : '0%' }} />
+                      </div>
+
+                      {doc.matchAnalysis?.rationale && (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-3">
+                          {doc.matchAnalysis.rationale}
+                        </p>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Matched Skills</span>
+                          <div className="flex flex-wrap gap-1">
+                            {matched ? matched.map((s, i) => (
+                              <span key={i} className="px-1.5 py-0.5 text-[10px] rounded bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-400 font-medium">
+                                {s}
+                              </span>
+                            )) : <span className="text-[10px] text-slate-400">—</span>}
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Gaps / Missing</span>
+                          <div className="flex flex-wrap gap-1">
+                            {gaps ? gaps.map((s, i) => (
+                              <span key={i} className="px-1.5 py-0.5 text-[10px] rounded bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-900 text-amber-700 dark:text-amber-400 font-medium">
+                                {s}
+                              </span>
+                            )) : <span className="text-[10px] text-slate-400">—</span>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- SETTINGS MODAL --- */}
       {isSettingsOpen && (
