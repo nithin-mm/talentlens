@@ -6,6 +6,7 @@ import {
   Users, CheckSquare, Square, ZoomIn, ZoomOut, Sun, Moon, Briefcase, Award, ArrowUpRight
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 // --- CONFIGURATION ---
 const GEMINI_STABLE_STREAM_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent";
@@ -641,17 +642,27 @@ Evaluate and return structured rating in JSON format:
     try {
       setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: '🎙️ *Assembling high fidelity candidate comparison podcast outline...*' }]);
       
-      const docSummaries = activeDocs.map(d => {
-         const meta = d.matchAnalysis ? `JD Match: ${d.matchAnalysis.score}%` : '';
-         return `- Candidate: ${d.name}\n  Summary Profile: ${d.summary || "Pending"}\n  ${meta}`;
-      }).join('\n\n');
+      // Ground the model with each candidate's actual resume text so it uses real
+      // names/facts instead of inventing them. Cap per-candidate to keep tokens sane.
+      const docContext = activeDocs.map((d, i) => {
+         const label = d.name.replace(/\.[^.]+$/, '');
+         const meta = d.matchAnalysis ? `JD Match Score: ${d.matchAnalysis.score}%` : 'JD Match: not scored';
+         const resumeExcerpt = d.pages.map(p => p.text).join(' ').replace(/\s+/g, ' ').trim().substring(0, 1500);
+         return `Candidate ${i + 1} — file "${label}"\nSummary: ${d.summary || 'No summary available.'}\n${meta}\nResume excerpt: ${resumeExcerpt}`;
+      }).join('\n\n---\n\n');
 
       const payload = {
-        contents: [{ role: "user", parts: [{ text: `Generate a conversational 45-second energetic monologue suitable for an audio overview of candidates for a hiring manager. 
-Use the factual document profiles below. Make it engaging, do not use bullet points or Markdown syntax like asterisks.
+        contents: [{ role: "user", parts: [{ text: `You are creating a short spoken audio overview for a hiring manager comparing the candidates below.
 
-Candidate Profiles Context:
-${docSummaries}` }] }]
+STRICT RULES:
+- Use ONLY the information provided below. Do not invent names, employers, job titles, skills, degrees, or numbers.
+- Refer to each candidate by the actual name found in their resume excerpt. If no clear name is present, refer to them by their file label (for example, "the candidate in resume_one"). Never make up a name.
+- Keep it to roughly 45 seconds of speech (about 110-130 words).
+- Conversational and engaging, but strictly factual. Output plain spoken text only: no bullet points, asterisks, headings, or Markdown.
+
+Candidates:
+${docContext}` }] }],
+        generationConfig: { temperature: 0.4 }
       };
 
       const response = await fetch(`${GEMINI_STABLE_NON_STREAM_URL}?key=${apiKey}`, {
@@ -1095,7 +1106,7 @@ ${docSummaries}` }] }]
                      <div className="text-sm whitespace-pre-wrap">{msg.text}</div>
                   ) : (
                      <div className="prose prose-sm dark:prose-invert prose-blue max-w-none">
-                       <ReactMarkdown components={renderers}>{msg.text || (isStreaming ? "..." : "")}</ReactMarkdown>
+                       <ReactMarkdown remarkPlugins={[remarkGfm]} components={renderers}>{msg.text || (isStreaming ? "..." : "")}</ReactMarkdown>
                      </div>
                   )}
                 </div>
@@ -1124,7 +1135,7 @@ ${docSummaries}` }] }]
              <div className="flex gap-2 mb-2 items-center text-xs text-slate-500">
                <span className="font-bold uppercase tracking-wider text-[10px]">Quick Screens:</span>
                <button 
-                 onClick={() => handleChatSubmit("Create a comparison table comparing years of experience, core skills, matched JD score, and gaps.")}
+                 onClick={() => handleChatSubmit("Rank all included candidates from strongest to weakest fit for the job description. For each, give: a one-line verdict, top 3 matching strengths, the single biggest gap, and a recommendation (Advance / Maybe / Pass). Cite sources.")}
                  className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-0.5"
                >
                  Compare Resumes <ArrowUpRight size={12} />
