@@ -133,7 +133,7 @@ export default function TalentLens() {
   const [messages, setMessages] = useState([{
     id: 'welcome',
     role: 'assistant',
-    text: 'Welcome to **TalentLens**. Set your API key in configuration, upload candidate resumes or a Job Description, and discover match metrics instantly.'
+    text: 'Welcome to **TalentLens**. Set your API key in configuration, upload candidate resumes and a Job Description, and discover match metrics instantly.'
   }]);
   const [chatInput, setChatInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
