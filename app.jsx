@@ -644,11 +644,6 @@ Evaluate and return structured rating in JSON format:
       return;
     }
 
-    const jdDoc = documents.find(d => d.id === jdDocId);
-    const jdContext = jdDoc
-      ? `Job Description being hired for:\n${jdDoc.pages.map(p => p.text).join(' ').replace(/\s+/g, ' ').trim().substring(0, 1500)}\n\n`
-      : '';
-
     try {
       setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: '🎙️ *Assembling high fidelity candidate comparison podcast outline...*' }]);
 
@@ -669,9 +664,9 @@ STRICT RULES:
 - Refer to each candidate by the actual name found in their resume excerpt. If no clear name is present, refer to them by their file label (for example, "the candidate in resume_one"). Never make up a name.
 - Keep it to roughly 45 seconds of speech (about 110-130 words).
 - Conversational and engaging, but strictly factual. Output plain spoken text only: no bullet points, asterisks, headings, or Markdown.
-- The Job Description below (if present) is the role being hired for. It is NOT a candidate — use it only as context for how well each candidate fits.
+- Discuss ONLY the candidates listed below. There are exactly ${candidateDocs.length} candidate(s); do not introduce any other person.
 
-${jdContext}Candidates:
+Candidates:
 ${docContext}` }] }],
         generationConfig: { temperature: 0.4 }
       };
